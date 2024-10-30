@@ -1,0 +1,120 @@
+// RabbitMQ connection settings
+$host = '10.242.180.20';
+$port = 5672;
+$user = 'frontend_user';
+$pass = 'frontend_password';
+$sendingQueue = 'logFE2BE'; //Sending
+$receiveQueue = 'logBE2FE'; //Receive
+$exchangeName = 'log_info';
+
+// Check if the form has been submitted
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    //Retrieve form data
+    $username_email = $_POST['username_email'];
+    $password = $_POST['password'];
+    
+    $connection = null; // Initialize $connection outside the try-catch block
+
+    try {
+        // Attempt to create a connection
+        $connection = new AMQPStreamConnection($host, $port, $user, $pass);
+        //$channel = $connection->channel();
+        // Your code for RabbitMQ connection
+    } catch (Exception $e) {
+        // Handle connection errors
+        die("Could not connect to RabbitMQ: " . $e->getMessage());
+    }
+    
+    $channel = $connection->channel();
+    
+    // Declare the exchange
+    $channel->exchange_declare($exchangeName, 'direct', false, true, false);
+    
+    // Declare the queues
+    $channel->queue_declare($sendingQueue, false, true, false, false);
+    
+    // Bind the queues to the exchange (no routing key needed)
+    $channel->queue_bind($sendingQueue, $exchangeName);
+    
+    // Construct message payload
+    $data = json_encode([
+        "sender" => "frontend",
+        "receiver" => "backend",
+        "purpose" => "login",
+        "action" => "login_step1",
+        "username_email" => $username_email,
+        "password" => $password
+    ]);
+    
+    // Define the message to send
+    $message = new AMQPMessage($data);
+    
+    // Create a new AMQP message
+    $message = new AMQPMessage($data, [
+        'delivery_mode' => AMQPMessage::DELIVERY_MODE_PERSISTENT,
+        'reply_to' => $receiveQueue
+    ]);
+    
+    // Publish the message to the queue
+    $channel->basic_publish($message, $exchangeName);
+    
+    // Close the channel and the connection
+    $channel->close();
+    $connection->close();
+    
+    //Receive Message
+    // Create a connection to RabbitMQ
+    $receiveChannel = null;
+    $receiveConnection = null;
+    
+    try {
+        $receiveConnection = new AMQPStreamConnection($host, $port, $user, $pass);
+        $receiveChannel = $receiveConnection->channel();
+        echo "Connected to RabbitMQ successfully!\n";
+    } catch (Exception $e) {
+        die("Could not connect to RabbitMQ: " . $e->getMessage());
+    }
+    //$receiveChannel = $receiveConnection->channel();
+    
+    //Declare the queue
+    $receiveChannel->queue_declare($receiveQueue, false, true, false, false);
+    
+    // Define the callback function to process messages from the queue
+    $receiveCallback = function ($receiveMessage) use ($receiveChannel) {
+        $receiveData = json_decode($receiveMessage->body, true);
+        
+        //Log the received message for debugging
+        echo "Received message: " . print_r($receiveData, true) . "\n";
+        
+        //Extract relevant information
+        $status = $receiveData['status'];
+        $results = $receiveData['results'];
+        
+        if ($status == "Success") {
+            //Display success message to user
+            echo "<script>alert('Login successful!');</script>";
+            echo "<script>location.href='index.php';</script>";
+        } else if ($status == "Failed") {
+            //Display the failed message to user
+            echo "<script>alert('Login failed, incorrect username or password. Please try again: $results');</script>";
+            echo "<script>location.href='login.php';</script>";
+        }
+    };
+    // Consume messages from the queue
+    $receiveChannel->basic_consume($receiveQueue, '', false, true, false, false, $receiveCallback);
+
+    // Keep consuming messages until the channel is closed
+    while ($receiveChannel->is_consuming()) {
+        $receiveChannel->wait();
+        break;
+    }
+
+    // Close the connection
+    $receiveChannel->close();
+    $receiveConnection->close();
+}
+
+?>
+</div>
+</body>
+</html>
