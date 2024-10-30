@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Car Dealership Finder</title>
+  <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyDsZEjTLG-QxgkmfYjR_peeEQ6T_w61KqQ&libraries=places"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 0;
+    }
+
+    header {
+      background-color: #4285F4;
+      color: white;
+      padding: 20px;
+      text-align: center;
+    }
+
+    #searchForm {
+      padding: 20px;
+      background-color: #f9f9f9;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 10px;
+    }
+
+    #searchForm label {
+      margin-right: 5px;
+    }
+
+    #searchForm input {
+      padding: 8px;
+      margin-right: 10px;
+      width: 150px;
+    }
+
+    #searchForm button {
+      padding: 10px 20px;
+      background-color: #4285F4;
+      color: white;
+      border: none;
+      cursor: pointer;
+    }
+
+    #searchForm button:hover {
+      background-color: #357ae8;
+    }
+
+    #map {
+      height: 500px;
+      width: 100%;
+    }
+
+    #dealershipList {
+      padding: 20px;
+    }
+
+    .dealership {
+      border: 1px solid #ddd;
+      padding: 10px;
+      margin-bottom: 10px;
+      border-radius: 5px;
+    }
+
+    .dealership h3 {
+      margin: 0 0 5px 0;
+      color: #4285F4;
+    }
+
+    @media (min-width: 768px) {
+      #mapAndList {
+        display: flex;
+      }
+
+      #map {
+        flex: 2;
+      }
+
+      #dealershipList {
+        flex: 1;
+        max-height: 500px;
+        overflow-y: auto;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>Car Dealership Finder</h1>
+    <p>Find the nearest dealerships for your preferred car make.</p>
+  </header>
+
+  <form id="searchForm">
+    <div>
+      <label for="zipCode">ZIP Code:</label>
+      <input type="text" id="zipCode" name="zipCode" placeholder="e.g., 08816" required>
+    </div>
+    <div>
+      <label for="make">Car Make:</label>
+      <input type="text" id="make" name="make" placeholder="e.g., Toyota" required>
+    </div>
+    <div>
+      <button type="submit">Search Dealerships</button>
+    </div>
+  </form>
+
+  <div id="mapAndList">
+    <div id="map"></div>
+    <div id="dealershipList"></div>
+  </div>
+
+  <script>
+    let map;
+    let markers = [];
+    let infoWindow;
+
+    // Initialize the Google Map
+    function initMap() {
+      // Default center
+      const defaultCenter = { lat: 39.8283, lng: -98.5795 };
+
+      map = new google.maps.Map(document.getElementById("map"), {
+        zoom: 4,
+        center: defaultCenter,
+      });
+
+      infoWindow = new google.maps.InfoWindow();
+    }
+
+    // Call initMap when the page loads
+    window.onload = initMap;
+
+    // Function to clear existing markers
+    function clearMarkers() {
+      for (let marker of markers) {
+        marker.setMap(null);
+      }
+      markers = [];
+    }
+
+    // Function to create a marker and add to map
+    function createMarker(place) {
+      if (!place.geometry || !place.geometry.location) return;
+
+      const marker = new google.maps.Marker({
+        map,
+        position: place.geometry.location,
+      });
+
+      google.maps.event.addListener(marker, "click", () => {
+        const content = `
+          <div>
+            <h3>${place.name}</h3>
+            <p>${place.vicinity}</p>
+            ${place.rating ? `<p>Rating: ${place.rating} (${place.user_ratings_total} reviews)</p>` : ''}
+          </div>
+        `;
+        infoWindow.setContent(content);
+        infoWindow.open(map, marker);
+      });
+
+      markers.push(marker);
+    }
+
+    // Function to geocode ZIP code to coordinates
+    function geocodeZip(zipCode) {
+      return new Promise((resolve, reject) => {
+        const geocoder = new google.maps.Geocoder();
+        geocoder.geocode({ address: zipCode }, (results, status) => {
+          if (status === "OK" && results[0]) {
+            resolve(results[0].geometry.location);
+          } else {
+            reject(`Geocoding failed: ${status}`);
+          }
+        });
+      });
+    }
+
+    // Function to search for dealerships using PlacesService
+    function searchDealerships(location, make) {
+      return new Promise((resolve, reject) => {
+        const service = new google.maps.places.PlacesService(map);
+        const request = {
+          location: location,
+          radius: '10000', // 10 km
+          keyword: `${make} dealership`,
+        };
+
+        service.nearbySearch(request, (results, status, pagination) => {
+          if (status === google.maps.places.PlacesServiceStatus.OK) {
+            resolve(results);
+          } else {
+            reject(`Places search failed: ${status}`);
+          }
+        });
+      });
+    }
+
+    // Function to display dealerships in the list
+    function displayDealershipList(dealerships) {
+      const listDiv = document.getElementById("dealershipList");
+      listDiv.innerHTML = ''; // Clear previous results
+
+      if (dealerships.length === 0) {
+        listDiv.innerHTML = '<p>No dealerships found for this car make in the specified ZIP code.</p>';
+        return;
+      }
+
+      dealerships.forEach(dealership => {
+        const div = document.createElement('div');
+        div.className = 'dealership';
+        div.innerHTML = `
+          <h3>${dealership.name}</h3>
+          <p><strong>Address:</strong> ${dealership.vicinity}</p>
+          ${dealership.rating ? `<p><strong>Rating:</strong> ${dealership.rating} (${dealership.user_ratings_total} reviews)</p>` : ''}
+          <p><a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(dealership.name + ' ' + dealership.vicinity)}" target="_blank">View on Google Maps</a></p>
+        `;
+        listDiv.appendChild(div);
+      });
+    }
+
+    // Handle form submission
+    document.getElementById("searchForm").addEventListener("submit", async function(event) {
+      event.preventDefault(); // Prevent page reload
+
+      const zipCode = document.getElementById("zipCode").value.trim();
+      const make = document.getElementById("make").value.trim();
+
+      if (!zipCode || !make) {
+        alert("Please enter both ZIP Code and Car Make.");
+        return;
+      }
+
+      try {
+        // Geocode the ZIP code
+        const location = await geocodeZip(zipCode);
+        // Center the map on the geocoded location
+        map.setCenter(location);
+        map.setZoom(12);
+
+        // Clear existing markers
+        clearMarkers();
+
+        // Search for dealerships
+        const dealerships = await searchDealerships(location, make);
+
+        // Create markers for each dealership
+        dealerships.forEach(dealership => {
+          createMarker(dealership);
+        });
+
+        // Display the list of dealerships
+        displayDealershipList(dealerships);
+
+      } catch (error) {
+        console.error(error);
+        alert(error);
+      }
+    });
+  </script>
+
+</body>
+</html>
