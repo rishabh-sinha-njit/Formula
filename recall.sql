@@ -1,0 +1,7 @@
+USE users;
+CREATE TABLE IF NOT EXISTS recall(
+    id INT(10) NOT NULL PRIMARY KEY AUTO_INCREMENT,
+    car_name VARCHAR(200) NOT NULL,
+    car_make VARCHAR(200) NOT NULL,
+    car_year INT(10) NOT NULL
+);
